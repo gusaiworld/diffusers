@@ -15,9 +15,19 @@ limitations under the License.
 -->
 
 <p align="center">
-    <br>
-    <img src="https://raw.githubusercontent.com/huggingface/diffusers/main/docs/source/en/imgs/diffusers_library.jpg" width="400"/>
-    <br>
+    
+对数据集进行拉普拉斯金字塔替换程序 read.py(单个图片) diffusers/examples/controlnet/read.py
+				read1.py(批量）
+
+训练文件run_xl511.sh     位于
+			diffusers/examples/controlnet/run_xl511.sh
+		调用/diffusers/examples/controlnet/train_controlnet_sdxl_1.py
+
+
+
+模型i推理位于3_xl.py        位于diffusers/examples/controlnet/3_xl.py
+
+
 <p>
 <p align="center">
     <a href="https://github.com/huggingface/diffusers/blob/main/LICENSE"><img alt="GitHub" src="https://img.shields.io/github/license/huggingface/datasets.svg?color=blue"></a>
