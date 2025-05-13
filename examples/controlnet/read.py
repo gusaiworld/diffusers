@@ -430,8 +430,8 @@ def safe_laplacian_blend(original_rgb, moire_rgb, levels=3, replace_levels=1):
 # 示例用法
 if __name__ == "__main__":
     # 读取图像（假设是RGB格式）
-    original_rgb = cv2.cvtColor(cv2.imread(r'D:\study\dataset\demoire\clear\image_test_part001_00000002.png'), cv2.COLOR_BGR2RGB)
-    moire_rgb = cv2.cvtColor(cv2.imread(r'D:\study\dataset\demoire\moire\image_test_part001_00000002.png'), cv2.COLOR_BGR2RGB)
+    original_rgb = cv2.cvtColor(cv2.imread("./data/image_test_part003_00000001_target.png"), cv2.COLOR_BGR2RGB)
+    moire_rgb = cv2.cvtColor(cv2.imread(r'./data/image_test_part003_00000001_source.png'), cv2.COLOR_BGR2RGB)
 
     # 检查尺寸
     # original_rgb = ensure_even_dimensions(original_rgb)
@@ -441,10 +441,10 @@ if __name__ == "__main__":
     blended_rgb = safe_laplacian_blend(original_rgb, moire_rgb, levels=6, replace_levels=1)
 
     # 保存结果
-    cv2.imwrite(r'D:\study\dataset\demoire\blended_result.png', cv2.cvtColor(blended_rgb, cv2.COLOR_RGB2BGR))
+    cv2.imwrite('./data/blended_result.png', cv2.cvtColor(blended_rgb, cv2.COLOR_RGB2BGR))
     print("混合完成！")
     # result = compare_brightness(r"D:\study\dataset\demoire\clear\image_test_part001_00000002.png", r"D:\study\dataset\demoire\blended_result.png")
     # print(result)
-    compare_images(r"D:\study\dataset\demoire\clear\image_test_part001_00000002.png",  r"D:\study\dataset\demoire\blended_result.png")
+    compare_images("./data/image_test_part003_00000001_target.png",  "./data/blended_result.png")
 # Load images (assuming they're tensors in [-1,1] range)
 

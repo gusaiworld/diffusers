@@ -627,6 +627,7 @@ def make_train_dataset(args, tokenizer, accelerator):
     # We need to tokenize inputs and targets.
     column_names = dataset["train"].column_names
 
+
     # 6. Get the column names for input/target.
     if args.image_column is None:
         image_column = column_names[0]
@@ -695,6 +696,7 @@ def make_train_dataset(args, tokenizer, accelerator):
     )
 
     def preprocess_train(examples):
+
         images = [image.convert("RGB") for image in examples[image_column]]
         images = [image_transforms(image) for image in images]
 

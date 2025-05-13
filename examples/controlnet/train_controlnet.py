@@ -59,6 +59,7 @@ from diffusers.utils.torch_utils import is_compiled_module
 if is_wandb_available():
     import wandb
 
+os.environ["WANDB_MODE"]="offline"
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.34.0.dev0")
 
@@ -317,7 +318,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=500,
+        default=1000,
         help=(
             "Save a checkpoint of the training state every X updates. Checkpoints can be used for resuming training via `--resume_from_checkpoint`. "
             "In the case that the checkpoint is better than the final trained model, the checkpoint can also be used for inference."
@@ -607,10 +608,11 @@ def make_train_dataset(args, tokenizer, accelerator):
     if args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
         dataset = load_dataset(
-            args.dataset_name,
-            args.dataset_config_name,
+            path= args.dataset_name,
+            # name=args.dataset_config_name,
             cache_dir=args.cache_dir,
-            data_dir=args.train_data_dir,
+             # data_dir=args.train_data_dir,
+            trust_remote_code=True
         )
     else:
         if args.train_data_dir is not None:
