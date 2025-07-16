@@ -1,4 +1,4 @@
-# Copyright 2024 Black Forest Labs, The HuggingFace Team and The InstantX Team. All rights reserved.
+# Copyright 2025 Black Forest Labs, The HuggingFace Team and The InstantX Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,22 +21,22 @@ import torch.nn as nn
 
 from ...configuration_utils import ConfigMixin, register_to_config
 from ...loaders import FluxTransformer2DLoadersMixin, FromOriginalModelMixin, PeftAdapterMixin
-from ...models.attention import FeedForward
-from ...models.attention_processor import (
+from ...utils import USE_PEFT_BACKEND, deprecate, logging, scale_lora_layers, unscale_lora_layers
+from ...utils.import_utils import is_torch_npu_available
+from ...utils.torch_utils import maybe_allow_in_graph
+from ..attention import FeedForward
+from ..attention_processor import (
     Attention,
     AttentionProcessor,
     FluxAttnProcessor2_0,
     FluxAttnProcessor2_0_NPU,
     FusedFluxAttnProcessor2_0,
 )
-from ...models.modeling_utils import ModelMixin
-from ...models.normalization import AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormZeroSingle
-from ...utils import USE_PEFT_BACKEND, deprecate, logging, scale_lora_layers, unscale_lora_layers
-from ...utils.import_utils import is_torch_npu_available
-from ...utils.torch_utils import maybe_allow_in_graph
 from ..cache_utils import CacheMixin
 from ..embeddings import CombinedTimestepGuidanceTextProjEmbeddings, CombinedTimestepTextProjEmbeddings, FluxPosEmbed
 from ..modeling_outputs import Transformer2DModelOutput
+from ..modeling_utils import ModelMixin
+from ..normalization import AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormZeroSingle
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -79,10 +79,14 @@ class FluxSingleTransformerBlock(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
         temb: torch.Tensor,
         image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
     ) -> torch.Tensor:
+        text_seq_len = encoder_hidden_states.shape[1]
+        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
+
         residual = hidden_states
         norm_hidden_states, gate = self.norm(hidden_states, emb=temb)
         mlp_hidden_states = self.act_mlp(self.proj_mlp(norm_hidden_states))
@@ -100,7 +104,8 @@ class FluxSingleTransformerBlock(nn.Module):
         if hidden_states.dtype == torch.float16:
             hidden_states = hidden_states.clip(-65504, 65504)
 
-        return hidden_states
+        encoder_hidden_states, hidden_states = hidden_states[:, :text_seq_len], hidden_states[:, text_seq_len:]
+        return encoder_hidden_states, hidden_states
 
 
 @maybe_allow_in_graph
@@ -227,6 +232,7 @@ class FluxTransformer2DModel(
     _supports_gradient_checkpointing = True
     _no_split_modules = ["FluxTransformerBlock", "FluxSingleTransformerBlock"]
     _skip_layerwise_casting_patterns = ["pos_embed", "norm"]
+    _repeated_blocks = ["FluxTransformerBlock", "FluxSingleTransformerBlock"]
 
     @register_to_config
     def __init__(
@@ -241,7 +247,7 @@ class FluxTransformer2DModel(
         joint_attention_dim: int = 4096,
         pooled_projection_dim: int = 768,
         guidance_embeds: bool = False,
-        axes_dims_rope: Tuple[int] = (16, 56, 56),
+        axes_dims_rope: Tuple[int, int, int] = (16, 56, 56),
     ):
         super().__init__()
         self.out_channels = out_channels or in_channels
@@ -447,8 +453,6 @@ class FluxTransformer2DModel(
         timestep = timestep.to(hidden_states.dtype) * 1000
         if guidance is not None:
             guidance = guidance.to(hidden_states.dtype) * 1000
-        else:
-            guidance = None
 
         temb = (
             self.time_text_embed(timestep, pooled_projections)
@@ -486,6 +490,7 @@ class FluxTransformer2DModel(
                     encoder_hidden_states,
                     temb,
                     image_rotary_emb,
+                    joint_attention_kwargs,
                 )
 
             else:
@@ -508,20 +513,22 @@ class FluxTransformer2DModel(
                     )
                 else:
                     hidden_states = hidden_states + controlnet_block_samples[index_block // interval_control]
-        hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
 
         for index_block, block in enumerate(self.single_transformer_blocks):
             if torch.is_grad_enabled() and self.gradient_checkpointing:
-                hidden_states = self._gradient_checkpointing_func(
+                encoder_hidden_states, hidden_states = self._gradient_checkpointing_func(
                     block,
                     hidden_states,
+                    encoder_hidden_states,
                     temb,
                     image_rotary_emb,
+                    joint_attention_kwargs,
                 )
 
             else:
-                hidden_states = block(
+                encoder_hidden_states, hidden_states = block(
                     hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
                     temb=temb,
                     image_rotary_emb=image_rotary_emb,
                     joint_attention_kwargs=joint_attention_kwargs,
@@ -531,12 +538,7 @@ class FluxTransformer2DModel(
             if controlnet_single_block_samples is not None:
                 interval_control = len(self.single_transformer_blocks) / len(controlnet_single_block_samples)
                 interval_control = int(np.ceil(interval_control))
-                hidden_states[:, encoder_hidden_states.shape[1] :, ...] = (
-                    hidden_states[:, encoder_hidden_states.shape[1] :, ...]
-                    + controlnet_single_block_samples[index_block // interval_control]
-                )
-
-        hidden_states = hidden_states[:, encoder_hidden_states.shape[1] :, ...]
+                hidden_states = hidden_states + controlnet_single_block_samples[index_block // interval_control]
 
         hidden_states = self.norm_out(hidden_states, temb)
         output = self.proj_out(hidden_states)
